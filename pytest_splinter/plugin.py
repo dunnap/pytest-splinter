@@ -15,6 +15,7 @@ import logging
 import mimetypes  # pragma: no cover
 import os.path
 import re
+import copy
 
 import pytest  # pragma: no cover
 import splinter  # pragma: no cover
@@ -69,7 +70,14 @@ def Browser(*args, **kwargs):
     """Emulate splinter's Browser."""
     visit_condition = kwargs.pop('visit_condition')
     visit_condition_timeout = kwargs.pop('visit_condition_timeout')
-    browser = splinter.Browser(*args, **kwargs)
+    kargs = copy.deepcopy(kwargs)
+    desired_capabilities = {}
+    for key, value in kwargs.items():
+        if key not in  ['command_executor', 'keep_alive', 'browser']:
+            desired_capabilities[key] = value
+            del kargs[key]
+    kargs['desired_capabilities'] = desired_capabilities
+    browser = splinter.Browser(*args, **kargs)
     browser.switch_to = browser.driver.switch_to
     browser.wait_for_condition = functools.partial(_wait_for_condition, browser)
     if hasattr(browser, 'driver'):
@@ -231,6 +239,8 @@ def splinter_screenshot_dir(request):
 @pytest.fixture(scope='session')
 def splinter_headless(request):
     """Flag to start Chrome in headless mode.
+
+    http://splinter.readthedocs.io/en/latest/drivers/chrome.html#using-headless-option-for-chrome
     """
     return request.config.option.splinter_headless == 'true'
 
@@ -309,6 +319,8 @@ def get_args(driver=None,
     if driver == 'firefox':
         kwargs['profile_preferences'] = firefox_profile_preferences
         kwargs['profile'] = firefox_prof_dir
+        if headless:
+            kwargs["headless"] = headless
     elif driver == 'remote':
         if remote_url:
             kwargs['command_executor'] = remote_url
@@ -374,8 +386,11 @@ def _take_screenshot(
     Invoked from session and function browser fixtures.
     """
     slaveoutput = getattr(request.config, 'slaveoutput', None)
-
-    names = junitxml.mangle_test_address(request.node.nodeid)
+    try:
+        names = junitxml.mangle_testnames(request.node.nodeid.split("::"))
+    except AttributeError:
+        # pytest>=2.9.0
+        names = junitxml.mangle_test_address(request.node.nodeid)
 
     classname = '.'.join(names[:-1])
     screenshot_dir = os.path.join(splinter_screenshot_dir, classname)
